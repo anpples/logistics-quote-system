@@ -19,6 +19,7 @@
   var stagedUpdatedCompany = "";
   var activeVersionId = "";
   var runtimeMode = "file";
+  var cloudHasPublishedPrices = true;
 
   function node(tag, className, text) {
     var element = document.createElement(tag);
@@ -104,7 +105,12 @@
       data.summary.added + data.summary.changed + data.summary.removed;
     var noChanges = document.getElementById("no-price-changes");
     noChanges.hidden = totalChanges !== 0;
-    applyButton.disabled = totalChanges === 0;
+    var needsInitialCloudPublish =
+      runtimeMode === "cloud" && !cloudHasPublishedPrices;
+    noChanges.textContent = needsInitialCloudPublish
+      ? "新文件与内置价格完全一致。请确认发布，完成云端价格初始化。"
+      : "新文件与当前价格完全一致，无需更新。";
+    applyButton.disabled = totalChanges === 0 && !needsInitialCloudPublish;
 
     var changeList = document.getElementById("change-list");
     changeList.replaceChildren();
@@ -502,6 +508,7 @@
       var status = await response.json();
       if (status.mode === "cloud") {
         runtimeMode = "cloud";
+        cloudHasPublishedPrices = Boolean(status.hasPublishedPrices);
         if (!status.storageReady || !status.supportsExcelImport) {
           cloudUpdateInfo.hidden = false;
           cloudUpdateInfo.querySelector("p").textContent =
