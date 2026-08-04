@@ -2,7 +2,8 @@
   "use strict";
 
   var PYODIDE_VERSION = "0.27.7";
-  var PYODIDE_BASE =
+  var PYODIDE_LOCAL_BASE = "vendor/pyodide/";
+  var PYODIDE_CDN_BASE =
     "https://cdn.jsdelivr.net/pyodide/v" + PYODIDE_VERSION + "/full/";
   var MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
   var runtimePromise = null;
@@ -20,10 +21,21 @@
       script.dataset.runtime = "pyodide";
       script.onload = resolve;
       script.onerror = function () {
+        script.remove();
         reject(new Error("Excel解析引擎下载失败，请检查网络后重试"));
       };
       document.head.appendChild(script);
     });
+  }
+
+  async function loadRuntimeScript() {
+    try {
+      await loadScript(PYODIDE_LOCAL_BASE + "pyodide.js");
+      return PYODIDE_LOCAL_BASE;
+    } catch (_localError) {
+      await loadScript(PYODIDE_CDN_BASE + "pyodide.js");
+      return PYODIDE_CDN_BASE;
+    }
   }
 
   async function loadRuntime(onProgress) {
@@ -34,10 +46,11 @@
       if (onProgress) {
         onProgress("首次使用正在加载Excel解析引擎，请稍候…");
       }
+      var runtimeBase = PYODIDE_LOCAL_BASE;
       if (typeof root.loadPyodide !== "function") {
-        await loadScript(PYODIDE_BASE + "pyodide.js");
+        runtimeBase = await loadRuntimeScript();
       }
-      var pyodide = await root.loadPyodide({ indexURL: PYODIDE_BASE });
+      var pyodide = await root.loadPyodide({ indexURL: runtimeBase });
       var sourceResponse = await fetch("importer.py", { cache: "no-store" });
       if (!sourceResponse.ok) {
         throw new Error("无法读取物流价格表解析规则");
