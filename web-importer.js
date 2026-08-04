@@ -1,7 +1,7 @@
 (function (root) {
   "use strict";
 
-  var PYODIDE_VERSION = "314.0.2";
+  var PYODIDE_VERSION = "0.27.7";
   var PYODIDE_BASE =
     "https://cdn.jsdelivr.net/pyodide/v" + PYODIDE_VERSION + "/full/";
   var MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
