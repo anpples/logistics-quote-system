@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="根据国家和商品信息比较云途、云途商派、壹号、远朋、燕文与UBI物流渠道报价的公司内部工具"
+    />
+    <title>物流报价系统 · 多公司渠道比较</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="hero">
+        <div>
+        <p class="eyebrow">LOGISTICS QUOTE · V1.2</p>
+          <h1>物流报价系统</h1>
+          <p class="subtitle">比较云途、云途商派、壹号、远朋、燕文与UBI常用渠道，并安全更新价格版本。</p>
+        </div>
+        <div class="privacy-badge">
+          <span class="privacy-dot" aria-hidden="true"></span>
+          <span id="run-mode">正在确认价格数据</span> · <span id="company-count">7</span> 个物流服务组 ·
+          <span id="channel-count">55</span> 个渠道
+        </div>
+      </header>
+
+      <div id="startup-error" class="startup-error" role="alert" hidden></div>
+
+      <nav class="mode-switch" aria-label="功能切换">
+        <button class="mode-button active" type="button" data-view="quote-view">单件报价</button>
+        <button class="mode-button" type="button" data-view="batch-view">批量报价</button>
+        <button class="mode-button" type="button" data-view="update-view">价格更新</button>
+      </nav>
+
+      <section id="quote-view" class="workspace app-view" aria-label="报价计算工作区">
+        <form id="quote-form" class="quote-form">
+          <div class="section-heading">
+            <span>01</span>
+            <div>
+              <h2>商品与报价信息</h2>
+              <p>美元报价始终向上取到小数点后一位 · <span id="effective-date">正在读取价格日期</span></p>
+            </div>
+          </div>
+
+          <label class="field field-wide">
+            <span>目的国家</span>
+            <select id="country" name="country" required></select>
+          </label>
+
+          <div class="field-grid">
+            <label class="field">
+              <span>商品成本</span>
+              <div class="input-with-unit">
+                <input id="cost" name="cost" type="number" min="0" step="0.01" value="0" required />
+                <small>人民币</small>
+              </div>
+            </label>
+
+            <label class="field">
+              <span>计费重量</span>
+              <div class="input-with-unit">
+                <input id="weight" name="weight" type="number" min="0.001" step="0.001" value="0.2" required />
+                <small>千克</small>
+              </div>
+            </label>
+
+            <label class="field">
+              <span>利润</span>
+              <div class="input-with-unit">
+                <input id="profit" name="profit" type="number" min="0" step="0.01" value="10" required />
+                <small>人民币</small>
+              </div>
+            </label>
+
+            <label class="field">
+              <span>美元兑人民币汇率</span>
+              <div class="input-with-unit">
+                <input id="exchange-rate" name="exchangeRate" type="number" min="0.0001" step="0.0001" value="6.2" required />
+                <small>CNY</small>
+              </div>
+            </label>
+          </div>
+
+          <label class="field field-wide channel-field">
+            <span>选择物流渠道</span>
+            <select id="channel" name="channel" required></select>
+            <small id="channel-help">仅显示已开通当前目的国家的渠道</small>
+          </label>
+          <p id="form-error" class="form-error" role="alert" hidden></p>
+          <button id="calculate-selected" class="primary-button" type="submit">
+            计算所选渠道 <span>→</span>
+          </button>
+        </form>
+
+        <section class="result-panel" aria-live="polite">
+          <div class="section-heading result-heading">
+            <span>02</span>
+            <div>
+              <h2>报价结果</h2>
+              <p>默认计算指定渠道，也可以单独进行全部渠道比价</p>
+            </div>
+            <button id="compare-all" class="compare-all-button" type="button">
+              比较全部可用渠道
+            </button>
+          </div>
+
+          <div id="empty-result" class="empty-result">
+            <div class="empty-mark">¥</div>
+            <p>填写信息、选择渠道并计算报价</p>
+          </div>
+
+          <div id="quote-result" class="quote-result" hidden>
+            <div class="comparison-summary">
+              <div>
+                <p class="result-label">本次目的地</p>
+                <strong id="result-country">—</strong>
+              </div>
+              <span id="available-count" class="available-tag">0 个渠道可用</span>
+            </div>
+            <p id="zone-notice" class="zone-notice" hidden></p>
+            <div id="offers-list" class="offers-list"></div>
+            <div id="unavailable-section" class="unavailable-section" hidden>
+              <p>当前不可报价</p>
+              <div id="unavailable-list" class="unavailable-list"></div>
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <section id="batch-view" class="batch-workspace app-view" aria-label="批量报价工作区" hidden>
+        <div class="batch-header">
+          <div class="section-heading">
+            <span>50</span>
+            <div>
+              <h2>批量 SKU 报价</h2>
+              <p>粘贴商品数据，统一选择渠道与多个国家，一次生成美元报价矩阵</p>
+            </div>
+          </div>
+          <span class="batch-limit-badge">单次最多 500 个 SKU</span>
+        </div>
+
+        <form id="batch-form">
+          <div class="batch-setup-grid">
+            <section class="batch-card batch-data-card">
+              <p class="card-kicker">STEP 01 · 商品数据</p>
+              <h3>从 Excel / WPS 复制三列</h3>
+              <p class="batch-card-help">支持带表头或不带表头；列名可使用 SKU、商品成本、计费重量。重量默认单位为千克，带“g/克”的表头或数值仍可自动换算。</p>
+              <textarea
+                id="batch-data"
+                aria-label="批量商品数据"
+                spellcheck="false"
+                placeholder="SKU&#9;商品成本&#9;计费重量(kg)&#10;SKU-001&#9;32.5&#9;0.2&#10;SKU-002&#9;48&#9;0.35&#10;SKU-003&#9;19.8&#9;0.12"
+              ></textarea>
+              <div id="batch-data-status" class="batch-data-status" role="status">
+                等待粘贴商品数据
+              </div>
+              <div id="batch-preview" class="batch-preview" hidden>
+                <table>
+                  <thead>
+                    <tr><th>SKU</th><th>成本</th><th>重量</th></tr>
+                  </thead>
+                  <tbody id="batch-preview-body"></tbody>
+                </table>
+                <p id="batch-preview-more"></p>
+              </div>
+            </section>
+
+            <section class="batch-card batch-settings-card">
+              <p class="card-kicker">STEP 02 · 统一报价条件</p>
+              <h3>利润、汇率与物流渠道</h3>
+              <div class="batch-number-grid">
+                <label class="field">
+                  <span>每个 SKU 利润</span>
+                  <div class="input-with-unit">
+                    <input id="batch-profit" type="number" min="0" step="0.01" value="10" required />
+                    <small>人民币</small>
+                  </div>
+                </label>
+                <label class="field">
+                  <span>美元兑人民币汇率</span>
+                  <div class="input-with-unit">
+                    <input id="batch-exchange-rate" type="number" min="0.0001" step="0.0001" value="6.2" required />
+                    <small>CNY</small>
+                  </div>
+                </label>
+              </div>
+              <label class="field batch-channel-field">
+                <span>选择物流渠道</span>
+                <select id="batch-channel" required></select>
+                <small>国家列表只显示该渠道已开通的目的地</small>
+              </label>
+
+              <div class="country-picker-heading">
+                <div>
+                  <strong>勾选目的国家</strong>
+                  <span id="batch-country-count">已选择 0 个</span>
+                </div>
+                <input id="batch-country-search" type="search" placeholder="搜索国家" aria-label="搜索批量报价国家" />
+              </div>
+              <div class="country-actions">
+                <button id="select-major-markets" type="button">常用市场</button>
+                <button id="select-all-countries" type="button">全选</button>
+                <button id="clear-countries" type="button">清空</button>
+              </div>
+              <div id="batch-country-list" class="batch-country-list"></div>
+              <p id="batch-error" class="form-error" role="alert" hidden></p>
+              <button class="primary-button" type="submit">
+                生成批量报价 <span>→</span>
+              </button>
+            </section>
+          </div>
+        </form>
+
+        <section id="batch-result" class="batch-result" aria-live="polite" hidden>
+          <div class="batch-result-header">
+            <div>
+              <p class="card-kicker">QUOTE MATRIX</p>
+              <h3 id="batch-result-title">批量报价结果</h3>
+              <p id="batch-result-summary"></p>
+            </div>
+            <div class="batch-result-actions">
+              <button id="copy-batch-result" type="button">复制结果</button>
+              <button id="download-batch-result" type="button">下载 CSV</button>
+            </div>
+          </div>
+          <div class="batch-table-scroll">
+            <table id="batch-result-table" class="batch-result-table"></table>
+          </div>
+          <p class="batch-result-note">表格中的金额均为最终美元报价；“不可用”表示该重量超出渠道范围。</p>
+        </section>
+      </section>
+
+      <section id="update-view" class="update-workspace app-view" aria-label="物流价格更新" hidden>
+        <div class="update-header">
+          <div class="section-heading">
+            <span>UP</span>
+            <div>
+              <h2>物流价格更新</h2>
+              <p>自动识别云途、云途商派、壹号、远朋、燕文或UBI价格表，只读取已支持渠道</p>
+            </div>
+          </div>
+          <span class="safe-update-badge">原始价格与公司规则分离</span>
+        </div>
+
+        <div id="server-required" class="server-required" hidden>
+          <strong>价格更新功能尚未启动</strong>
+          <p>请关闭当前文件页面，在项目文件夹中双击 <code>start.command</code>，再打开终端窗口显示的网址。</p>
+        </div>
+
+        <div id="cloud-update-info" class="cloud-update-info" hidden>
+          <strong>当前是公司共享报价网页</strong>
+          <p>共享价格存储尚未连接。完成 Cloudflare 数据绑定后，所有同事都可以在网页中检查并启用新版价格。</p>
+        </div>
+
+        <div id="update-live" hidden>
+          <div class="update-grid">
+            <section class="upload-card">
+              <p class="card-kicker">STEP 01</p>
+              <h3>选择新版物流价格表</h3>
+              <p id="upload-processing-note">文件只在当前浏览器中解析；确认前不会更新共享价格。</p>
+              <label class="file-picker">
+                <input id="price-file" type="file" accept=".xlsx" />
+                <span id="file-picker-label">选择 .xlsx 文件</span>
+              </label>
+              <button id="preview-update" class="primary-button" type="button" disabled>
+                检查并生成差异预览 <span>→</span>
+              </button>
+              <div id="update-status" class="update-status" role="status" hidden></div>
+            </section>
+
+            <section class="guardrail-card">
+              <p class="card-kicker">安全边界</p>
+              <h3>导入不会改变这些规则</h3>
+              <ul>
+                <li>欧盟27国税费与英国附加费</li>
+                <li>澳大利亚分区加权规则</li>
+                <li>墨西哥与新西兰指定渠道</li>
+                <li>各渠道国家专项税费</li>
+              </ul>
+            </section>
+          </div>
+
+          <section id="local-cloud-sync-panel" class="cloud-sync-panel">
+            <div>
+              <p class="card-kicker">CLOUD SYNC</p>
+              <h3>同步当前价格到公司网页</h3>
+              <p id="cloud-sync-description">首次完成 Cloudflare 部署后，只需在这台维护电脑配置一次。以后每次确认 Excel 更新，再点击同步即可让所有同事使用新价格。</p>
+            </div>
+            <button id="publish-cloud-prices" class="apply-button" type="button" disabled>尚未连接公司网页</button>
+          </section>
+
+          <section id="preview-panel" class="preview-panel" hidden>
+            <div class="preview-heading">
+              <div>
+                <p class="card-kicker">STEP 02</p>
+                <h3>更新预览</h3>
+                <p id="preview-file-name"></p>
+              </div>
+              <button id="apply-update" class="apply-button" type="button" disabled>确认启用新价格</button>
+            </div>
+
+            <div id="preview-stats" class="preview-stats"></div>
+            <div id="channel-checks" class="channel-checks"></div>
+            <div id="no-price-changes" class="no-price-changes" hidden>
+              新文件与当前价格完全一致，无需更新。
+            </div>
+            <div id="change-list" class="change-list"></div>
+          </section>
+
+          <section class="version-panel">
+            <div class="preview-heading company-status-heading">
+              <div>
+                <p class="card-kicker">CURRENT PRICE TABLES</p>
+                <h3>各物流服务组当前价格</h3>
+                <p>云途商派和UBI加拿大特价均与各自主价格表分开显示来源文件。</p>
+              </div>
+            </div>
+            <div id="company-status-list" class="company-status-list">
+              <p class="version-loading">正在读取当前价格…</p>
+            </div>
+
+            <div id="version-history-section">
+              <div class="preview-heading">
+                <div>
+                  <p class="card-kicker">VERSION HISTORY</p>
+                  <h3>更新与恢复记录</h3>
+                  <p>恢复操作只影响对应物流服务组，不会覆盖其他价格。</p>
+                </div>
+              </div>
+              <div id="version-list" class="version-list">
+                <p class="version-loading">正在读取版本记录…</p>
+              </div>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <footer>
+        <p id="footer-data-summary">当前录入7个物流服务组、55个渠道；新价格必须经过检查、预览和人工确认后才会启用。</p>
+      </footer>
+    </main>
+
+    <script src="channel-data.js"></script>
+    <script src="business-rules.js"></script>
+    <script src="cloud-data.js"></script>
+    <script src="bootstrap.js"></script>
+  </body>
+</html>
