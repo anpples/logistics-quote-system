@@ -14,7 +14,14 @@
     <main class="shell">
       <header class="hero">
         <div>
-        <p class="eyebrow">LOGISTICS QUOTE · V1.2</p>
+          <div class="brand-lockup" aria-label="方尚科技">
+            <span class="brand-mark" aria-hidden="true">方</span>
+            <span class="brand-name">
+              <strong>方尚科技</strong>
+              <small>FANGSHANG TECHNOLOGY</small>
+            </span>
+          </div>
+          <p class="eyebrow">LOGISTICS QUOTE · V1.3</p>
           <h1>物流报价系统</h1>
           <p class="subtitle">比较云途、云途商派、壹号、远朋、燕文与UBI常用渠道，并安全更新价格版本。</p>
         </div>
@@ -43,10 +50,22 @@
             </div>
           </div>
 
-          <label class="field field-wide">
+          <div class="field field-wide">
             <span>目的国家</span>
-            <select id="country" name="country" required></select>
-          </label>
+            <div class="country-search-control">
+              <input
+                id="country-search"
+                class="country-search-input"
+                type="search"
+                placeholder="搜索国家，如美国、法国"
+                autocomplete="off"
+                aria-label="搜索目的国家"
+                aria-describedby="country-search-help"
+              />
+              <select id="country" name="country" required aria-label="选择目的国家"></select>
+            </div>
+            <small id="country-search-help" class="field-help">可输入中文关键词筛选，也可直接展开国家列表</small>
+          </div>
 
           <div class="field-grid">
             <label class="field">

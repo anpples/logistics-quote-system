@@ -487,6 +487,7 @@ YANWEN_CHANNEL_DEFINITIONS = [
         "name": "燕文轻小件专线",
         "fullName": "南昌燕文-轻小件专线",
         "sheetName": "轻小件专线",
+        "sheetAliases": ["轻小件专线-普货"],
         "cargoType": "普货",
     },
 ]
@@ -1419,18 +1420,73 @@ def parse_yuanpeng_workbook(content: bytes) -> list[dict[str, Any]]:
 def _yanwen_effective_date(
     rows: list[tuple[int, dict[int, str]]],
 ) -> str:
-    value = dict(rows).get(2, {}).get(2, "").strip()
-    match = re.search(r"(\d{4})-(\d{1,2})-(\d{1,2})", value)
-    if not match:
-        return "未识别"
-    return (
-        f"{int(match.group(1)):04d}-"
-        f"{int(match.group(2)):02d}-"
-        f"{int(match.group(3)):02d}"
-    )
+    for source_row, values in rows:
+        if source_row > 4:
+            break
+        for value in values.values():
+            match = re.search(r"(\d{4})-(\d{1,2})-(\d{1,2})", value)
+            if match:
+                return (
+                    f"{int(match.group(1)):04d}-"
+                    f"{int(match.group(2)):02d}-"
+                    f"{int(match.group(3)):02d}"
+                )
+    return "未识别"
 
 
-def _yanwen_transit_times(
+def _yanwen_header_schema(values: dict[int, str]) -> dict[str, Any] | None:
+    def find(label: str) -> int:
+        return next(
+            (
+                column
+                for column, value in values.items()
+                if label in value.strip()
+            ),
+            0,
+        )
+
+    country = find("国家")
+    weight = find("重量段")
+    if not country or not weight:
+        return None
+    common = {
+        "country": country,
+        "zone": find("CountryCode") or find("分区"),
+        "transit": find("参考时效"),
+        "weight": weight,
+    }
+    first_weight = find("首重")
+    continued_weight = find("续重")
+    if first_weight and continued_weight:
+        first_price = find("首重价格")
+        continued_price = find("续重价格")
+        handling_fee = find("处理费")
+        if first_price and continued_price and handling_fee:
+            return {
+                **common,
+                "mode": "step",
+                "firstWeight": first_weight,
+                "firstPrice": first_price,
+                "continuedWeight": continued_weight,
+                "continuedPrice": continued_price,
+                "fee": handling_fee,
+            }
+        return None
+    minimum = find("最小计费重量")
+    price = find("公斤运费")
+    fee = find("处理费")
+    if minimum and price and fee:
+        return {
+            **common,
+            "mode": "normal",
+            "minimum": minimum,
+            "price": price,
+            "fee": fee,
+        }
+    return None
+
+
+def _yanwen_legacy_transit_times(
     rows: list[tuple[int, dict[int, str]]],
 ) -> dict[str, str]:
     result = {}
@@ -1442,35 +1498,28 @@ def _yanwen_transit_times(
     return result
 
 
-def _validate_yanwen_header(
-    definition: dict[str, Any], rows: list[tuple[int, dict[int, str]]]
-) -> list[str]:
-    header = dict(rows).get(4, {})
-    required = {
-        2: "国家",
-        4: "公斤运费",
-        5: "处理费",
-        6: "重量段",
-        7: "最小计费重量",
-    }
-    errors = []
-    for column, expected in required.items():
-        if expected not in header.get(column, ""):
-            errors.append(
-                f"{definition['name']}：{definition['sheetName']}第4行"
-                f"第{column}列未识别为“{expected}”"
-            )
-    return errors
-
-
 def _normalize_yanwen_country(
     raw_country: str, country_code: str
 ) -> tuple[str, str]:
-    zone = country_code if re.fullmatch(r"[一二三四1234]区", country_code) else ""
-    if zone and zone[0] in "一二三四":
-        zone = {"一": "1区", "二": "2区", "三": "3区", "四": "4区"}[
-            zone[0]
-        ]
+    zone = (
+        country_code
+        if re.fullmatch(r"(?:[一二三四五六七八九十]|\d+)区", country_code)
+        else ""
+    )
+    chinese_zones = {
+        "一": "1区",
+        "二": "2区",
+        "三": "3区",
+        "四": "4区",
+        "五": "5区",
+        "六": "6区",
+        "七": "7区",
+        "八": "8区",
+        "九": "9区",
+        "十": "10区",
+    }
+    if zone and zone[:-1] in chinese_zones:
+        zone = chinese_zones[zone[:-1]]
     return COUNTRY_ALIASES.get(raw_country, raw_country), zone
 
 
@@ -1478,92 +1527,122 @@ def _extract_yanwen_channel(
     definition: dict[str, Any],
     rows: list[tuple[int, dict[int, str]]],
 ) -> tuple[dict[str, Any], list[str]]:
-    errors = _validate_yanwen_header(definition, rows)
-    transit_times = _yanwen_transit_times(rows)
+    errors = []
     raw_rates = []
     suspicious_rows = []
+    active_schema = None
+    recognized_headers = 0
+    legacy_transit_times = _yanwen_legacy_transit_times(rows)
 
     for source_row, values in rows:
-        if source_row < 5:
+        header_schema = _yanwen_header_schema(values)
+        if header_schema:
+            active_schema = header_schema
+            recognized_headers += 1
             continue
-        country_text = values.get(2, "").strip()
-        weight_text = values.get(6, "").strip()
+        if source_row < 5 or not active_schema:
+            continue
+        country_text = values.get(active_schema["country"], "").strip()
+        weight_text = values.get(active_schema["weight"], "").strip()
         weight_match = ONE_WEIGHT_RE.match(weight_text)
-        try:
-            price = float(values.get(4, "").strip())
-            fee = float(values.get(5, "").strip())
-            minimum = float(values.get(7, "").strip())
-            numeric_rate = True
-        except ValueError:
-            price = fee = minimum = 0.0
-            numeric_rate = False
-        if country_text and weight_text and numeric_rate and not weight_match:
-            suspicious_rows.append(source_row)
-            continue
-        if not country_text or not weight_match or not numeric_rate:
+        if not country_text or not weight_text:
             continue
         country, zone = _normalize_yanwen_country(
-            country_text, values.get(3, "").strip()
+            country_text,
+            values.get(active_schema.get("zone", 0), "").strip(),
         )
-        raw_rates.append(
-            {
-                "country": country,
-                "zone": zone,
-                "transitTime": transit_times.get(country, ""),
-                "rawMinKg": float(weight_match.group(1)),
-                "maxKg": float(weight_match.group(2)),
-                "incrementKg": 0.001,
-                "minimumWeightKg": minimum,
-                "pricePerKg": price,
-                "registrationFee": fee,
-                "sourceSheet": definition["sheetName"],
-                "sourceRow": source_row,
-            }
+        transit_time = (
+            values.get(active_schema.get("transit", 0), "").strip()
+            or legacy_transit_times.get(country, "")
         )
 
-    # Several Yanwen products quote Japan as first-weight/continued-weight.
-    # Convert that affine fee into the pricing engine's kg-rate + fixed-fee model.
-    for source_row, values in rows:
-        if source_row < 5:
+        if active_schema["mode"] == "normal":
+            try:
+                price = float(values.get(active_schema["price"], "").strip())
+                fee = float(values.get(active_schema["fee"], "").strip())
+                minimum = float(
+                    values.get(active_schema["minimum"], "").strip()
+                )
+                numeric_rate = True
+            except ValueError:
+                price = fee = minimum = 0.0
+                numeric_rate = False
+            if numeric_rate and not weight_match:
+                suspicious_rows.append(source_row)
+                continue
+            if not weight_match or not numeric_rate:
+                continue
+            raw_rates.append(
+                {
+                    "country": country,
+                    "zone": zone,
+                    "transitTime": transit_time,
+                    "rawMinKg": float(weight_match.group(1)),
+                    "maxKg": float(weight_match.group(2)),
+                    "incrementKg": 0.001,
+                    "minimumWeightKg": minimum,
+                    "pricePerKg": price,
+                    "registrationFee": fee,
+                    "sourceSheet": definition["resolvedSheetName"],
+                    "sourceRow": source_row,
+                }
+            )
             continue
-        country_text = values.get(2, "").strip()
-        weight_text = values.get(4, "").strip()
-        weight_match = ONE_WEIGHT_RE.match(weight_text)
+
         try:
-            first_weight = float(values.get(5, "").strip())
-            first_price = float(values.get(6, "").strip())
-            continued_weight = float(values.get(7, "").strip())
-            continued_price = float(values.get(8, "").strip())
-            handling_fee = float(values.get(9, "").strip())
+            first_weight = float(
+                values.get(active_schema["firstWeight"], "").strip()
+            )
+            first_price = float(
+                values.get(active_schema["firstPrice"], "").strip()
+            )
+            continued_weight = float(
+                values.get(active_schema["continuedWeight"], "").strip()
+            )
+            continued_price = float(
+                values.get(active_schema["continuedPrice"], "").strip()
+            )
+            handling_fee = float(
+                values.get(active_schema["fee"], "").strip()
+            )
             numeric_step_rate = True
         except ValueError:
             first_weight = first_price = continued_weight = 0.0
             continued_price = handling_fee = 0.0
             numeric_step_rate = False
-        if not country_text or not weight_match or not numeric_step_rate:
+        if numeric_step_rate and not weight_match:
+            suspicious_rows.append(source_row)
+            continue
+        if not weight_match or not numeric_step_rate:
             continue
         if first_weight <= 0 or continued_weight <= 0:
             errors.append(f"{definition['name']}：第{source_row}行首重或续重必须大于0")
             continue
-        country, zone = _normalize_yanwen_country(
-            country_text, values.get(3, "").strip()
-        )
         price_per_kg = continued_price / continued_weight
         fixed_fee = handling_fee + first_price - price_per_kg * first_weight
+        country, zone = _normalize_yanwen_country(
+            country_text,
+            values.get(active_schema.get("zone", 0), "").strip(),
+        )
         raw_rates.append(
             {
                 "country": country,
                 "zone": zone,
-                "transitTime": transit_times.get(country, ""),
+                "transitTime": transit_time,
                 "rawMinKg": float(weight_match.group(1)),
                 "maxKg": float(weight_match.group(2)),
                 "incrementKg": continued_weight,
                 "minimumWeightKg": first_weight,
                 "pricePerKg": price_per_kg,
                 "registrationFee": fixed_fee,
-                "sourceSheet": definition["sheetName"],
+                "sourceSheet": definition["resolvedSheetName"],
                 "sourceRow": source_row,
             }
+        )
+
+    if not recognized_headers:
+        errors.append(
+            f"{definition['name']}：{definition['resolvedSheetName']}未识别价格表头"
         )
 
     if suspicious_rows:
@@ -1640,16 +1719,31 @@ def parse_yanwen_workbook(content: bytes) -> list[dict[str, Any]]:
             shared = _load_shared_strings(book)
         except (KeyError, ET.ParseError, zipfile.BadZipFile) as exc:
             raise ImportValidationError(["无法读取 Excel 工作簿结构"]) from exc
-        required_sheets = {
-            definition["sheetName"] for definition in YANWEN_CHANNEL_DEFINITIONS
-        }
-        missing = sorted(required_sheets - paths.keys())
+        resolved_sheets = {}
+        missing = []
+        for definition in YANWEN_CHANNEL_DEFINITIONS:
+            candidates = [
+                definition["sheetName"],
+                *definition.get("sheetAliases", []),
+            ]
+            resolved = next((name for name in candidates if name in paths), "")
+            if resolved:
+                resolved_sheets[definition["key"]] = resolved
+            else:
+                missing.append("/".join(candidates))
         if missing:
             raise ImportValidationError(["缺少工作表：" + "、".join(missing)])
         channels = []
         for definition in YANWEN_CHANNEL_DEFINITIONS:
-            rows = _read_sheet(book, shared, paths[definition["sheetName"]])
-            channel, channel_errors = _extract_yanwen_channel(definition, rows)
+            resolved_name = resolved_sheets[definition["key"]]
+            resolved_definition = {
+                **definition,
+                "resolvedSheetName": resolved_name,
+            }
+            rows = _read_sheet(book, shared, paths[resolved_name])
+            channel, channel_errors = _extract_yanwen_channel(
+                resolved_definition, rows
+            )
             channels.append(channel)
             errors.extend(channel_errors)
     if errors:
@@ -2044,9 +2138,16 @@ def parse_price_workbook(content: bytes) -> list[dict[str, Any]]:
         "目录",
         *(definition["sheetName"] for definition in YUANPENG_CHANNEL_DEFINITIONS),
     }
-    yanwen_sheets = {
-        definition["sheetName"] for definition in YANWEN_CHANNEL_DEFINITIONS
-    }
+    has_yanwen_sheets = all(
+        any(
+            sheet_name in paths
+            for sheet_name in [
+                definition["sheetName"],
+                *definition.get("sheetAliases", []),
+            ]
+        )
+        for definition in YANWEN_CHANNEL_DEFINITIONS
+    )
     ubi_main_sheets = {
         definition["sheetName"] for definition in UBI_MAIN_CHANNEL_DEFINITIONS
     }
@@ -2061,7 +2162,7 @@ def parse_price_workbook(content: bytes) -> list[dict[str, Any]]:
         return parse_one_workbook(content)
     if yuanpeng_sheets.issubset(paths):
         return parse_yuanpeng_workbook(content)
-    if yanwen_sheets.issubset(paths):
+    if has_yanwen_sheets:
         return parse_yanwen_workbook(content)
     if ubi_main_sheets.issubset(paths):
         return parse_ubi_main_workbook(content)

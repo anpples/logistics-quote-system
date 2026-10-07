@@ -3,6 +3,8 @@
 
   var form = document.getElementById("quote-form");
   var countrySelect = document.getElementById("country");
+  var countrySearch = document.getElementById("country-search");
+  var countrySearchHelp = document.getElementById("country-search-help");
   var channelSelect = document.getElementById("channel");
   var submitButton = document.getElementById("calculate-selected");
   var compareAllButton = document.getElementById("compare-all");
@@ -147,13 +149,38 @@
     quoteResult.hidden = false;
   }
 
-  window.Pricing.getCountries().forEach(function (country) {
-    var option = document.createElement("option");
-    option.value = country;
-    option.textContent = country;
-    option.selected = country === "美国";
-    countrySelect.appendChild(option);
-  });
+  var allCountries = window.Pricing.getCountries();
+
+  function renderCountryOptions(query, preferredCountry) {
+    var normalizedQuery = String(query || "").trim().toLocaleLowerCase("zh-CN");
+    var previousCountry = preferredCountry || countrySelect.value || "美国";
+    var matches = allCountries.filter(function (country) {
+      return country.toLocaleLowerCase("zh-CN").includes(normalizedQuery);
+    });
+    countrySelect.replaceChildren();
+    matches.forEach(function (country) {
+      var option = document.createElement("option");
+      option.value = country;
+      option.textContent = country;
+      option.selected = country === previousCountry;
+      countrySelect.appendChild(option);
+    });
+    if (!matches.length) {
+      var emptyOption = document.createElement("option");
+      emptyOption.value = "";
+      emptyOption.textContent = "没有找到匹配的国家";
+      emptyOption.selected = true;
+      countrySelect.appendChild(emptyOption);
+    } else if (!matches.includes(previousCountry)) {
+      countrySelect.value = matches[0];
+    }
+    countrySelect.disabled = matches.length === 0;
+    countrySearchHelp.textContent = normalizedQuery
+      ? "找到 " + matches.length + " 个国家，可继续输入或从右侧列表选择"
+      : "可输入中文关键词筛选，也可直接展开国家列表";
+  }
+
+  renderCountryOptions("", "美国");
 
   function populateChannels() {
     var previousValue = channelSelect.value;
@@ -226,11 +253,20 @@
     document.querySelector(".privacy-badge").title = dataMeta.warning || "";
   }
 
-  countrySelect.addEventListener("change", function () {
+  function resetQuoteResult() {
     populateChannels();
     quoteResult.hidden = true;
     emptyResult.hidden = false;
     errorBox.hidden = true;
+  }
+
+  countrySelect.addEventListener("change", function () {
+    resetQuoteResult();
+  });
+
+  countrySearch.addEventListener("input", function () {
+    renderCountryOptions(countrySearch.value);
+    resetQuoteResult();
   });
 
   updateDataSummary();
