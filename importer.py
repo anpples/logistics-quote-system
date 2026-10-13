@@ -60,6 +60,12 @@ CHANNEL_DEFINITIONS = [
         "cargoType": "化妆品",
     },
     {
+        "key": "yt_clothing",
+        "name": "云途服装专线",
+        "fullName": "云途全球服装专线挂号",
+        "cargoType": "服装",
+    },
+    {
         "key": "yt_eu_amz_general",
         "name": "云途欧洲AMZ特惠普货",
         "fullName": "云途欧洲专线（特惠普货）-AMZ",
