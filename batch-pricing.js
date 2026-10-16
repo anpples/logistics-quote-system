@@ -168,6 +168,7 @@
 
   function calculateBatch(options) {
     var pricing = root.Pricing;
+    var rules = root.BusinessRules;
     var rows = options.rows || [];
     var countries = options.countries || [];
     var channel = pricing.CHANNELS.find(function (item) {
@@ -182,6 +183,18 @@
     if (!countries.length) {
       throw new Error("请至少勾选一个目的国家");
     }
+
+    var noticeKeys = {};
+    var notices = [];
+    countries.forEach(function (country) {
+      rules.getQuoteNotices(channel.key, country).forEach(function (notice) {
+        var key = country + "|" + notice.text;
+        if (!noticeKeys[key]) {
+          noticeKeys[key] = true;
+          notices.push({ country: country, type: notice.type, text: notice.text });
+        }
+      });
+    });
 
     var unavailableCount = 0;
     var zonedCount = 0;
@@ -253,6 +266,7 @@
       quoteCount: rows.length * countries.length,
       unavailableCount: unavailableCount,
       zonedCount: zonedCount,
+      notices: notices,
     };
   }
 
@@ -267,6 +281,13 @@
         })
       ));
     });
+    if (result.notices && result.notices.length) {
+      rows.push([]);
+      rows.push(["报价说明"]);
+      result.notices.forEach(function (notice) {
+        rows.push([notice.country, notice.text]);
+      });
+    }
     return rows;
   }
 

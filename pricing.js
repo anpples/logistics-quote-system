@@ -164,6 +164,8 @@
 
   function applyBusinessAdjustments(channel, country, baseOffer, input) {
     var adjustments = RULES.getAdjustments(channel.key, country);
+    var dutyInfo = RULES.getDutyInfo(channel.key, country);
+    var notices = RULES.getQuoteNotices(channel.key, country);
     var adjustmentTotal = roundMoney(
       adjustments.reduce(function (sum, item) { return sum + item.amount; }, 0)
     );
@@ -194,6 +196,8 @@
       pricePerKg: baseOffer.pricePerKg,
       baseRegistrationFee: baseOffer.baseRegistrationFee,
       adjustments: adjustments,
+      dutyInfo: dutyInfo,
+      notices: notices,
       adjustmentTotal: adjustmentTotal,
       registrationFee: registrationFee,
       shippingCost: shippingCost,
@@ -383,6 +387,7 @@
     getCountries: getCountries,
     getChannelsForCountry: getChannelsForCountry,
     getCountriesForChannel: getCountriesForChannel,
+    getCustomerRoute: RULES.getCustomerRoute,
     calculateAllQuotes: calculateAllQuotes,
     calculateChannelQuote: calculateChannelQuote,
   };

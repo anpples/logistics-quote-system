@@ -110,6 +110,15 @@
       );
       card.appendChild(adjustmentLine);
     }
+    (offer.notices || []).forEach(function (notice) {
+      card.appendChild(
+        element(
+          "p",
+          "offer-notice offer-notice-" + (notice.type || "general"),
+          notice.text
+        )
+      );
+    });
     return card;
   }
 

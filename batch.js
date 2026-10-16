@@ -19,6 +19,7 @@
   var errorBox = document.getElementById("batch-error");
   var resultSection = document.getElementById("batch-result");
   var resultTable = document.getElementById("batch-result-table");
+  var resultNotices = document.getElementById("batch-result-notices");
   var lastResult = null;
 
   function node(tagName, className, text) {
@@ -184,6 +185,14 @@
       body.appendChild(tableRow);
     });
     resultTable.replaceChildren(head, body);
+    resultNotices.replaceChildren();
+    (result.notices || []).forEach(function (notice) {
+      var item = node("p", "batch-result-notice");
+      item.appendChild(node("strong", "", notice.country + "："));
+      item.appendChild(document.createTextNode(notice.text));
+      resultNotices.appendChild(item);
+    });
+    resultNotices.hidden = !result.notices || result.notices.length === 0;
     resultSection.hidden = false;
     resultSection.scrollIntoView({ behavior: "smooth", block: "start" });
   }
