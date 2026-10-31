@@ -116,7 +116,7 @@
   function getAdjustments(channelKey, country) {
     var adjustments = [];
     if (EU_27.indexOf(country) !== -1) {
-      adjustments.push({ label: "欧盟27国关税附加费", amount: 24 });
+      adjustments.push({ label: "欧盟27国进口税及处理费（3欧元+2欧元）", amount: 39 });
     }
     if (country === "英国") {
       adjustments.push({ label: "英国偏远附加费", amount: 2 });
