@@ -37,6 +37,11 @@
     "yt_clothing",
   ];
 
+  function hasCompanyDutyAdjustments(channelKey) {
+    return YUNTU_DUTY_CHANNELS.indexOf(channelKey) !== -1 ||
+      channelKey.indexOf("wb_") === 0;
+  }
+
   var DDP_COUNTRY_FEES = {
     阿拉伯联合酋长国: { amount: 1.68, label: "DDP专项税费" },
     沙特阿拉伯: { amount: 39.04, label: "DDP专项税费（5.04+34）" },
@@ -45,7 +50,6 @@
     巴林: { amount: 0, label: "DDP税费" },
     科威特: { amount: 0, label: "DDP税费" },
     摩洛哥: { amount: 18.81, label: "DDP专项税费" },
-    罗马尼亚: { amount: 41, label: "DDP专项税费" },
   };
 
   var DDU_COUNTRY_FEES = {
@@ -115,14 +119,14 @@
 
   function getAdjustments(channelKey, country) {
     var adjustments = [];
-    if (EU_27.indexOf(country) !== -1) {
+    if (EU_27.indexOf(country) !== -1 && channelKey.indexOf("yt_chc_") !== 0) {
       adjustments.push({ label: "欧盟27国进口税及处理费（3欧元+2欧元）", amount: 39 });
     }
     if (country === "英国") {
       adjustments.push({ label: "英国偏远附加费", amount: 2 });
     }
     if (
-      YUNTU_DUTY_CHANNELS.indexOf(channelKey) !== -1 &&
+      hasCompanyDutyAdjustments(channelKey) &&
       DDP_COUNTRY_FEES[country] &&
       DDP_COUNTRY_FEES[country].amount > 0
     ) {
@@ -132,7 +136,7 @@
   }
 
   function getDutyInfo(channelKey, country) {
-    if (YUNTU_DUTY_CHANNELS.indexOf(channelKey) === -1) {
+    if (!hasCompanyDutyAdjustments(channelKey)) {
       return null;
     }
     if (Object.prototype.hasOwnProperty.call(DDP_COUNTRY_FEES, country)) {
@@ -156,6 +160,25 @@
 
   function getQuoteNotices(channelKey, country) {
     var notices = [];
+    if (channelKey.indexOf("yt_chc_") === 0 && EU_27.indexOf(country) !== -1) {
+      notices.push({
+        type: "duty",
+        text: "云途CHC价格已含欧盟3欧元进口税及2欧元处理费，不再另加¥39。",
+      });
+    }
+    if (channelKey.indexOf("wb_us_zip") === 0) {
+      notices.push({
+        type: "address",
+        text: "万邦美国特惠仅限对应精选邮编；本系统尚未按具体邮编校验，正式报价和下单前须核对可发邮编。",
+      });
+    }
+    if (channelKey.indexOf("wb_registered_") === 0 &&
+        channelKey.indexOf("_au_post") !== -1) {
+      notices.push({
+        type: "address",
+        text: "万邦澳洲邮编专线须核对目的地邮编；当前报价按公司澳大利亚四区加权规则计算。",
+      });
+    }
     var dutyInfo = getDutyInfo(channelKey, country);
     if (dutyInfo && dutyInfo.mode === "DDP") {
       notices.push({

@@ -80,17 +80,23 @@
       }) + " kg"
     );
     addDetail(details, "重量档位", offer.weightTier);
-    addDetail(
-      details,
-      offer.isWeightedAverage ? "加权公斤单价" : "公斤单价",
-      formatMoney(offer.pricePerKg)
-    );
-    addDetail(
-      details,
-      offer.isWeightedAverage ? "加权原挂号费" : "原挂号费",
-      formatMoney(offer.baseRegistrationFee)
-    );
-    addDetail(details, "调整后挂号费", formatMoney(offer.registrationFee));
+    if (offer.billingModel === "first_half_kg") {
+      addDetail(details, "首重（0.5 kg 内）", formatMoney(offer.firstWeightFee));
+      addDetail(details, "续重（每 0.5 kg）", formatMoney(offer.continuationFee));
+      addDetail(details, "额外调整", formatMoney(offer.adjustmentTotal));
+    } else {
+      addDetail(
+        details,
+        offer.isWeightedAverage ? "加权公斤单价" : "公斤单价",
+        formatMoney(offer.pricePerKg)
+      );
+      addDetail(
+        details,
+        offer.isWeightedAverage ? "加权原挂号费" : "原挂号费",
+        formatMoney(offer.baseRegistrationFee)
+      );
+      addDetail(details, "调整后挂号费", formatMoney(offer.registrationFee));
+    }
     addDetail(details, "参考时效", offer.transitTime || "—");
     card.appendChild(details);
 

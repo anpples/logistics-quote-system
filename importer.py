@@ -154,6 +154,49 @@ SHANGPAI_CHANNEL_DEFINITIONS = [
     },
 ]
 
+CHC_CHANNEL_DEFINITIONS = [
+    {
+        "key": "yt_chc_battery",
+        "name": "云途CHC特惠带电",
+        "fullName": "云途欧洲专线（特惠带电）-CHC",
+        "cargoType": "带电",
+        "company": "云途CHC",
+        "parentCompany": "云途",
+    },
+    {
+        "key": "yt_chc_general",
+        "name": "云途CHC特惠普货",
+        "fullName": "云途欧洲专线（特惠普货）-CHC",
+        "cargoType": "普货",
+        "company": "云途CHC",
+        "parentCompany": "云途",
+    },
+    {
+        "key": "yt_chc_cosmetics",
+        "name": "云途CHC化妆品",
+        "fullName": "云途欧洲化妆品专线-CHC",
+        "cargoType": "化妆品",
+        "company": "云途CHC",
+        "parentCompany": "云途",
+    },
+]
+
+WANBANG_SHEETS = [
+    ("万邦专线挂号含电", "wb_registered_battery", "万邦专线挂号含电", "带电", "main"),
+    ("万邦专线挂号普货", "wb_registered_general", "万邦专线挂号普货", "普货", "main"),
+    ("万邦敏感货专线", "wb_sensitive", "万邦敏感货专线", "敏感货", "simple"),
+    ("万邦化妆品专线 ", "wb_cosmetics", "万邦化妆品专线", "化妆品", "simple"),
+    ("万邦特敏专线A", "wb_special_a", "万邦特敏专线A", "特敏A", "simple"),
+    ("万邦特敏专线 B", "wb_special_b", "万邦特敏专线B", "特敏B", "simple"),
+    ("万邦美国特惠专线 -精选邮编", "wb_us_zip", "万邦美国特惠专线-精选邮编", "", "us"),
+    ("万邦美国特惠专线-精选邮编PLUS", "wb_us_zip_plus", "万邦美国特惠专线-精选邮编PLUS", "", "us"),
+]
+
+WANBANG_WEIGHT_RE = re.compile(
+    r"^\s*(\d+(?:\.\d+)?)\s*[-—–~]\s*(\d+(?:\.\d+)?)\s*KG\s*$",
+    re.IGNORECASE,
+)
+
 ONE_CHANNEL_DEFINITIONS = [
     {
         "key": "one_us_special_a",
@@ -789,6 +832,215 @@ def parse_shangpai_workbook(content: bytes) -> list[dict[str, Any]]:
             errors.extend(channel_errors)
     if errors:
         raise ImportValidationError(errors)
+    return channels
+
+
+def parse_chc_workbook(content: bytes) -> list[dict[str, Any]]:
+    errors = []
+    try:
+        book = zipfile.ZipFile(io.BytesIO(content))
+    except zipfile.BadZipFile as exc:
+        raise ImportValidationError(["文件不是有效的 .xlsx 工作簿"]) from exc
+    with book:
+        try:
+            paths = _sheet_paths(book)
+            shared = _load_shared_strings(book)
+        except (KeyError, ET.ParseError, zipfile.BadZipFile) as exc:
+            raise ImportValidationError(["无法读取 Excel 工作簿结构"]) from exc
+        missing = [
+            definition["fullName"]
+            for definition in CHC_CHANNEL_DEFINITIONS
+            if definition["fullName"] not in paths
+        ]
+        if missing:
+            raise ImportValidationError(["缺少工作表：" + "、".join(missing)])
+        channels = []
+        for definition in CHC_CHANNEL_DEFINITIONS:
+            rows = _read_sheet(book, shared, paths[definition["fullName"]])
+            channel, channel_errors = _extract_channel(definition, rows)
+            channels.append(channel)
+            errors.extend(channel_errors)
+    if errors:
+        raise ImportValidationError(errors)
+    return channels
+
+
+def _wanbang_subchannel(
+    base_key: str, base_name: str, base_cargo: str,
+    layout: str, product: str, product_code: str,
+) -> tuple[str, str, str]:
+    if layout == "us":
+        if "特敏B" in product:
+            suffix, cargo = "special_b", "特敏B"
+        elif "敏感" in product:
+            suffix, cargo = "sensitive", "敏感货"
+        elif "服装" in product:
+            suffix, cargo = "clothing", "服装"
+        elif "含电" in product:
+            suffix, cargo = "battery", "带电"
+        elif "普货" in product:
+            suffix, cargo = "general", "普货"
+        else:
+            raise ImportValidationError([f"{base_name}：未识别产品 {product}"])
+        return f"{base_key}_{suffix}", product, cargo
+    if layout == "main" and product_code.upper().endswith("-ZIP"):
+        return f"{base_key}_au_post", product, base_cargo
+    return base_key, base_name, base_cargo
+
+
+def _wanbang_weight_floor(value: float) -> float:
+    # The carrier prints the next one-gram bracket as 0.101-0.2 KG.
+    # Quoting uses (0.100, 0.200] KG, without a gap below 0.101 KG.
+    grams = round(value * 1000)
+    if value > 0 and abs(value * 1000 - grams) < 1e-7 and grams % 10 == 1:
+        return round(value - 0.001, 3)
+    return value
+
+
+def _extract_wanbang_sheet(
+    definition: tuple[str, str, str, str, str],
+    rows: list[tuple[int, dict[int, str]]], effective_date: str,
+) -> list[dict[str, Any]]:
+    sheet_name, base_key, base_name, base_cargo, layout = definition
+    main_layout = layout in {"main", "us"}
+    weight_col, price_col, fee_col = (8, 9, 10) if main_layout else (7, 8, 9)
+    transit_col = 5 if main_layout else 3
+    channels: dict[str, dict[str, Any]] = {}
+    country = product = product_code = transit = zone = ""
+    minimum = 0.0
+    errors = []
+    for row_number, values in rows:
+        country_cell = values.get(2, "").strip()
+        if country_cell.startswith("注意事项"):
+            break
+        weight_text = values.get(weight_col, "").strip()
+        if weight_text == "重量段" and "试算" in values.get(price_col, ""):
+            break  # Japanese trial-calculation table, not a second tariff.
+        match = WANBANG_WEIGHT_RE.match(weight_text)
+        if not match:
+            continue
+        try:
+            price = float(values.get(price_col, ""))
+            fee = float(values.get(fee_col, ""))
+        except ValueError:
+            errors.append(f"{sheet_name}：第 {row_number} 行费率不是数字")
+            continue
+        if country_cell:
+            country = country_cell
+            product = values.get(3, "").strip() if main_layout else base_name
+            product_code = values.get(4, "").strip()
+            transit = values.get(transit_col, "").strip()
+            zone = ""
+            minimum = 0.0
+        elif values.get(transit_col, "").strip():
+            transit = values[transit_col].strip()
+        if not country:
+            errors.append(f"{sheet_name}：第 {row_number} 行缺少国家")
+            continue
+        note = values.get(11 if main_layout else 10, "")
+        zone_match = re.search(r"([1-4])区报价", note)
+        if zone_match:
+            zone = zone_match.group(1) + "区"
+        if "50G起重" in note.upper():
+            minimum = 0.05
+        key, name, cargo = _wanbang_subchannel(
+            base_key, base_name, base_cargo, layout, product, product_code
+        )
+        if key not in channels:
+            channels[key] = {
+                "key": key, "company": "万邦物流", "name": name,
+                "fullName": name, "cargoType": cargo,
+                "effectiveDate": effective_date, "rates": [],
+            }
+            if layout == "us":
+                channels[key]["postalRestriction"] = "美国精选邮编，报价前须核对可发邮编"
+        lower = _wanbang_weight_floor(float(match.group(1)))
+        upper = float(match.group(2))
+        if lower >= upper:
+            errors.append(f"{sheet_name}：第 {row_number} 行重量段无效")
+            continue
+        is_japan_first_weight = layout == "main" and country == "日本"
+        rate = {
+            "country": country, "zone": zone if country == "澳大利亚" else "",
+            "transitTime": transit,
+            "minKg": _clean_number(lower), "maxKg": _clean_number(upper),
+            "incrementKg": 0.5 if is_japan_first_weight else 0,
+            "minimumWeightKg": 0.5 if is_japan_first_weight else minimum,
+            "pricePerKg": 0 if is_japan_first_weight else _clean_number(price),
+            "registrationFee": 0 if is_japan_first_weight else _clean_number(fee),
+            "sourceSheet": sheet_name, "sourceRow": row_number,
+        }
+        if is_japan_first_weight:
+            rate.update({
+                "billingModel": "first_half_kg",
+                "firstWeightFee": _clean_number(price),
+                "continuationFee": _clean_number(fee),
+            })
+        channels[key]["rates"].append(rate)
+    if errors:
+        raise ImportValidationError(errors)
+    if not channels or any(not channel["rates"] for channel in channels.values()):
+        raise ImportValidationError([f"{sheet_name}：未读取到有效费率"])
+    for channel in channels.values():
+        grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+        for rate in channel["rates"]:
+            grouped[(rate["country"], rate["zone"])].append(rate)
+        for (rate_country, rate_zone), group in grouped.items():
+            group.sort(key=lambda item: (item["minKg"], item["maxKg"]))
+            minimum_for_group = max(rate["minimumWeightKg"] for rate in group)
+            for previous, current in zip(group, group[1:]):
+                if current["minKg"] < previous["maxKg"] - 1e-9:
+                    raise ImportValidationError([
+                        f"{sheet_name}：{rate_country} {rate_zone} 重量段重叠"
+                    ])
+            for rate in group:
+                rate["minimumWeightKg"] = minimum_for_group
+    return list(channels.values())
+
+
+def parse_wanbang_workbook(content: bytes) -> list[dict[str, Any]]:
+    try:
+        book = zipfile.ZipFile(io.BytesIO(content))
+    except zipfile.BadZipFile as exc:
+        raise ImportValidationError(["文件不是有效的 .xlsx 工作簿"]) from exc
+    with book:
+        try:
+            paths = _sheet_paths(book)
+            shared = _load_shared_strings(book)
+        except (KeyError, ET.ParseError, zipfile.BadZipFile) as exc:
+            raise ImportValidationError(["无法读取 Excel 工作簿结构"]) from exc
+        missing = [name for name, *_ in WANBANG_SHEETS if name not in paths]
+        if missing:
+            raise ImportValidationError(["万邦缺少工作表：" + "、".join(missing)])
+        directory = _read_sheet(book, shared, paths["总目录"])
+        date_text = dict(directory).get(5, {}).get(2, "")
+        date_match = re.search(r"(\d{4})[.年/-](\d{1,2})[.月/-](\d{1,2})", date_text)
+        if not date_match:
+            raise ImportValidationError(["万邦总目录未识别生效日期"])
+        effective_date = (
+            f"{int(date_match.group(1)):04d}-"
+            f"{int(date_match.group(2)):02d}-"
+            f"{int(date_match.group(3)):02d}"
+        )
+        channels = []
+        for definition in WANBANG_SHEETS:
+            rows = _read_sheet(book, shared, paths[definition[0]])
+            parsed = _extract_wanbang_sheet(definition, rows, effective_date)
+            expected_count = {"main": 2, "simple": 1, "us": 5}[definition[4]]
+            if len(parsed) != expected_count:
+                raise ImportValidationError([
+                    f"{definition[0]}：应有 {expected_count} 个计费产品，实际读取 {len(parsed)} 个"
+                ])
+            channels.extend(parsed)
+    keys = [channel["key"] for channel in channels]
+    if len(keys) != len(set(keys)):
+        raise ImportValidationError(["万邦报价表出现重复渠道标识"])
+    for channel in channels:
+        australia = [rate for rate in channel["rates"] if rate["country"] == "澳大利亚"]
+        if australia and {rate["zone"] for rate in australia} != {
+            "1区", "2区", "3区", "4区"
+        }:
+            raise ImportValidationError([f"{channel['name']}：澳大利亚四区报价不完整"])
     return channels
 
 
@@ -2136,6 +2388,10 @@ def parse_price_workbook(content: bytes) -> list[dict[str, Any]]:
     shangpai_sheets = {
         definition["fullName"] for definition in SHANGPAI_CHANNEL_DEFINITIONS
     }
+    chc_sheets = {
+        definition["fullName"] for definition in CHC_CHANNEL_DEFINITIONS
+    }
+    wanbang_sheets = {definition[0] for definition in WANBANG_SHEETS}
     one_sheets = {
         "目录",
         *(definition["sheetName"] for definition in ONE_CHANNEL_DEFINITIONS),
@@ -2164,6 +2420,10 @@ def parse_price_workbook(content: bytes) -> list[dict[str, Any]]:
         return parse_yuntu_workbook(content)
     if shangpai_sheets.issubset(paths):
         return parse_shangpai_workbook(content)
+    if chc_sheets.issubset(paths):
+        return parse_chc_workbook(content)
+    if wanbang_sheets.issubset(paths):
+        return parse_wanbang_workbook(content)
     if one_sheets.issubset(paths):
         return parse_one_workbook(content)
     if yuanpeng_sheets.issubset(paths):
@@ -2175,7 +2435,7 @@ def parse_price_workbook(content: bytes) -> list[dict[str, Any]]:
     if ubi_canada_sheets.issubset(paths):
         return parse_ubi_canada_workbook(content)
     raise ImportValidationError(
-        ["无法识别物流公司：当前只支持云途、云途商派、壹号、远朋、燕文或UBI物流价格表"]
+        ["无法识别物流公司：当前只支持云途、云途商派、云途CHC、万邦、壹号、远朋、燕文或UBI物流价格表"]
     )
 
 
@@ -2234,6 +2494,9 @@ def compare_channels(
         "incrementKg",
         "minimumWeightKg",
         "transitTime",
+        "billingModel",
+        "firstWeightFee",
+        "continuationFee",
     ]
     changed_keys = [
         key

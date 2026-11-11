@@ -92,6 +92,9 @@
       maxKg: matched.tier.maxKg,
       pricePerKg: matched.tier.pricePerKg,
       baseRegistrationFee: matched.tier.registrationFee,
+      billingModel: matched.tier.billingModel || "",
+      firstWeightFee: matched.tier.firstWeightFee || 0,
+      continuationFee: matched.tier.continuationFee || 0,
       transitTime: matched.tier.transitTime,
       sourceRow: matched.tier.sourceRow,
     };
@@ -172,9 +175,13 @@
     var registrationFee = roundMoney(
       baseOffer.baseRegistrationFee + adjustmentTotal
     );
-    var shippingCost = roundMoney(
-      baseOffer.chargeableWeightKg * baseOffer.pricePerKg + registrationFee
-    );
+    var baseShippingCost = baseOffer.billingModel === "first_half_kg"
+      ? baseOffer.firstWeightFee +
+        Math.max(0, Math.round(baseOffer.chargeableWeightKg / 0.5) - 1) *
+        baseOffer.continuationFee
+      : baseOffer.chargeableWeightKg * baseOffer.pricePerKg +
+        baseOffer.baseRegistrationFee;
+    var shippingCost = roundMoney(baseShippingCost + adjustmentTotal);
 
     return {
       channelKey: channel.key,
@@ -195,6 +202,9 @@
         baseOffer.minKg + "＜W≤" + baseOffer.maxKg + " kg",
       pricePerKg: baseOffer.pricePerKg,
       baseRegistrationFee: baseOffer.baseRegistrationFee,
+      billingModel: baseOffer.billingModel,
+      firstWeightFee: baseOffer.firstWeightFee,
+      continuationFee: baseOffer.continuationFee,
       adjustments: adjustments,
       dutyInfo: dutyInfo,
       notices: notices,
