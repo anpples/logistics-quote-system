@@ -37,6 +37,9 @@
     "yt_clothing",
   ];
 
+  // Existing internal convention: €5 of EU fees are budgeted as ¥39.
+  var EU_FEE_CNY_PER_EUR = 39 / 5;
+
   function hasCompanyDutyAdjustments(channelKey) {
     return YUNTU_DUTY_CHANNELS.indexOf(channelKey) !== -1 ||
       channelKey.indexOf("wb_") === 0;
@@ -117,10 +120,24 @@
     return null;
   }
 
-  function getAdjustments(channelKey, country) {
+  function getAdjustments(channelKey, country, chargeableWeightKg) {
     var adjustments = [];
-    if (EU_27.indexOf(country) !== -1 && channelKey.indexOf("yt_chc_") !== 0) {
-      adjustments.push({ label: "欧盟27国进口税及处理费（3欧元+2欧元）", amount: 39 });
+    if (EU_27.indexOf(country) !== -1) {
+      if (channelKey.indexOf("yt_chc_") === 0) {
+        if (!Number.isFinite(chargeableWeightKg) || chargeableWeightKg <= 0) {
+          throw new Error("云途CHC额外税费需要有效的计费重量");
+        }
+        adjustments.push({
+          label: "云途CHC额外税费（€0.6/票）",
+          amount: Math.round(0.6 * EU_FEE_CNY_PER_EUR * 100) / 100,
+        });
+        adjustments.push({
+          label: "云途CHC额外税费（€1.5/kg × " + chargeableWeightKg + " kg）",
+          amount: Math.round(1.5 * EU_FEE_CNY_PER_EUR * chargeableWeightKg * 100) / 100,
+        });
+      } else {
+        adjustments.push({ label: "欧盟27国进口税及处理费（3欧元+2欧元）", amount: 39 });
+      }
     }
     if (country === "英国") {
       adjustments.push({ label: "英国偏远附加费", amount: 2 });
@@ -163,7 +180,7 @@
     if (channelKey.indexOf("yt_chc_") === 0 && EU_27.indexOf(country) !== -1) {
       notices.push({
         type: "duty",
-        text: "云途CHC价格已含欧盟3欧元进口税及2欧元处理费，不再另加¥39。",
+        text: "云途CHC基础价已含欧盟€3进口税及€2处理费；另收€0.6/票及€1.5/kg，按公司口径€1＝¥7.8计入报价。",
       });
     }
     if (channelKey.indexOf("wb_us_zip") === 0) {

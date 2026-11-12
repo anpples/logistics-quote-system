@@ -166,7 +166,9 @@
   }
 
   function applyBusinessAdjustments(channel, country, baseOffer, input) {
-    var adjustments = RULES.getAdjustments(channel.key, country);
+    var adjustments = RULES.getAdjustments(
+      channel.key, country, baseOffer.chargeableWeightKg
+    );
     var dutyInfo = RULES.getDutyInfo(channel.key, country);
     var notices = RULES.getQuoteNotices(channel.key, country);
     var adjustmentTotal = roundMoney(

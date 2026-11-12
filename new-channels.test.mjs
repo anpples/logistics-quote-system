@@ -42,10 +42,23 @@ const quote = (key, country, weightG) =>
     country, weightG, cost: 0, profit: 0, exchangeRate: 6.6,
   }, key).offers[0];
 
-assert.equal(quote("yt_chc_general", "法国", 400).shippingCost, 47.4);
+const franceChc = quote("yt_chc_general", "法国", 400);
+assert.equal(franceChc.shippingCost, 56.76);
+assert.equal(franceChc.adjustments.length, 2);
+assert.equal(franceChc.adjustments[0].amount, 4.68);
+assert.equal(franceChc.adjustments[1].amount, 4.68);
 assert.equal(quote("economy_general", "法国", 400).shippingCost, 86.4);
-assert.equal(quote("yt_chc_general", "罗马尼亚", 400).shippingCost, 40);
+assert.equal(quote("yt_chc_general", "罗马尼亚", 400).shippingCost, 49.36);
 assert.equal(quote("economy_general", "罗马尼亚", 400).shippingCost, 79);
+assert.equal(quote("yt_chc_general", "法国", 330).shippingCost, 51.32);
+assert.equal(quote("yt_chc_general", "法国", 430).shippingCost, 59.09);
+assert.equal(quote("yt_chc_general", "法国", 1000).adjustmentTotal, 16.38);
+assert.equal(context.Pricing.calculateChannelQuote({
+  country: "法国", weightG: 330, cost: 39, profit: 20, exchangeRate: 6.6,
+}, "yt_chc_general").offers[0].finalPriceUsd, 16.8);
+assert.equal(context.Pricing.calculateChannelQuote({
+  country: "法国", weightG: 430, cost: 49, profit: 20, exchangeRate: 6.6,
+}, "yt_chc_general").offers[0].finalPriceUsd, 19.5);
 assert.equal(quote("wb_special_a", "英国", 400).shippingCost, 41.2);
 const australia = quote("wb_registered_general", "澳大利亚", 400);
 assert.equal(australia.shippingCost, 11);
